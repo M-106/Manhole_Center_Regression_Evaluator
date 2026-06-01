@@ -1,0 +1,8 @@
+{
+    "ground_truth_path": "./eval_ground_truths.json",
+    "prediction_path": "./eval_prediction.json",
+    "distance_threshold": [0.1, 0.25, 0.5, 1.0],
+    "distance_mode": "xy"
+}
+
+

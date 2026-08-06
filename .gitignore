@@ -1,0 +1,7 @@
+*__pycache__*
+mcreval.egg-info
+
+*.json
+*.png
+eval_out
+

@@ -30,21 +30,33 @@ class CenterEvaluator:
         }
 
     def update(self, gt_centers, pred_centers):
-        if len(gt_centers) == 0:
+        if len(gt_centers) == 0 and len(pred_centers) == 0:
+            # for t in self.thresholds: 
+            #     self.results[t]["tn"] += len(pred_centers)
+            return
+        elif len(gt_centers) == 0:
             for t in self.thresholds: 
                 self.results[t]["fp"] += len(pred_centers)
             return
-        if len(pred_centers) == 0:
+        elif len(pred_centers) == 0:
             for t in self.thresholds:
                 self.results[t]["fn"] += len(gt_centers)
             return
         
         # optimal matching
-        dist_matrix = cdist(np.array(gt_centers), np.array(pred_centers), metric='euclidean')
+        # array([[7210.93457031, 3649.18530273,   13.93712902]])
+        gt_centers = np.array([(x['x'], x['y'], x['z']) for x in gt_centers])  # [gt_centers['x'], gt_centers['y'], gt_centers['z']]
+        # array([[7178.71355081, 3739.8159719 ,   14.07421112]])
+        pred_centers = np.array([(x['x'], x['y'], x['z']) for x in pred_centers])  # [pred_centers['x'], pred_centers['y'], pred_centers['z']]
+        dist_matrix = cdist(gt_centers, pred_centers, metric='euclidean')
         row_indeces, col_indeces = linear_sum_assignment(dist_matrix)
         matches = dist_matrix[row_indeces, col_indeces]
 
-        self.tp_distances.extend(matches.tolist())
+        max_t = max(self.thresholds)
+        valid_tp_distances = matches[matches <= max_t]
+        self.tp_distances.extend(valid_tp_distances.tolist())
+        # # add to tp distances no matter how far they are 
+        # self.tp_distances.extend(matches.tolist())
 
         for t in self.thresholds:
             tp_mask = matches <= t
@@ -72,70 +84,91 @@ class CenterEvaluator:
         summary = {}
         # MLE => Mean Localization Error
         mle = np.mean(self.tp_distances) if self.tp_distances else 0
-        summary["mean_localization_error_m"] = float(mle)
-        summary["std_localization_error_m"] = float(np.std(self.tp_distances)) if self.tp_distances else 0
-        summary["p95_error_m"] = float(np.percentile(self.tp_distances, 95)) if self.tp_distances else 0
-        summary["p50_error_m"] = float(np.percentile(self.tp_distances, 50)) if self.tp_distances else 0
+        # localization error (only on valid TPs)
+        if self.tp_distances:
+            summary["mean_localization_error_m"] = float(np.mean(self.tp_distances))
+            summary["std_localization_error_m"] = float(np.std(self.tp_distances))
+            summary["p50_error_m"] = float(np.percentile(self.tp_distances, 50))
+            summary["p95_error_m"] = float(np.percentile(self.tp_distances, 95))
+        else:
+            summary["mean_localization_error_m"] = 0.0
+            summary["std_localization_error_m"] = 0.0
+            summary["p50_error_m"] = 0.0
+            summary["p95_error_m"] = 0.0
         # typical performance -> mean error -> median
 
         # ap_list = []
         # ar_list = []
-        total_tp = 0
-        total_fp = 0
-        total_fn = 0
+        precisions = []
+        recalls = []
+        f1s = []
+
+        # total_tp = 0
+        # total_fp = 0
+        # total_fn = 0
         for t in self.thresholds:
             cur_result = self.results[t]
-            precision = cur_result["tp"] / max(cur_result["tp"] + cur_result["fp"], 1)
-            recall = cur_result["tp"] / max(cur_result["tp"] + cur_result["fn"], 1)
-            summary[f"precision_at_{t}m"] = precision
-            summary[f"recall_at_{t}m"] = recall
-            summary[f"f1_at_{t}m"] = (2 * precision * recall) / (precision + recall)
-            # ap_list.append(precision)
-            # ar_list.append(recall)
-            total_tp += cur_result["tp"]
-            total_fp += cur_result["fp"]
-            total_fn += cur_result["fn"]
+            tp = cur_result["tp"]
+            fp = cur_result["fp"]
+            fn = cur_result["fn"]
 
-        # ar_list = np.array(ar_list)
-        # ap_list = np.array(ap_list)
-        # idx = np.argsort(ar_list)
-        # mAP = auc(np.array(ar_list)[idx], np.array(ap_list)[idx])
-        # summary["mAP"] = mAP    # np.mean(ap_list)
-        # summary["mAR"] = np.mean(ar_list)
-        total_precision = total_tp / max(total_tp + total_fp, 1)
-        total_recall = total_tp / max(total_tp + total_fn, 1)
-        summary["mAP"] = total_precision
-        summary["mAR"] = total_recall
-        summary[f"mAF1"] = (2 * total_precision * total_recall) / (total_precision + total_recall)
+            # Calculate metrics for current threshold with zero-division safety
+            precision = tp / max(tp + fp, 1e-8)
+            recall = tp / max(tp + fn, 1e-8)
+            f1 = (2 * precision * recall) / max(precision + recall, 1e-8)
+
+            summary[f"precision_at_{t}m"] = float(precision)
+            summary[f"recall_at_{t}m"] = float(recall)
+            summary[f"f1_at_{t}m"] = float(f1)
+
+            precisions.append(precision)
+            recalls.append(recall)
+            f1s.append(f1)
+            # total_tp += cur_result["tp"]
+            # total_fp += cur_result["fp"]
+            # total_fn += cur_result["fn"]
+
+        recalls_arr = np.array(recalls)
+        precisions_arr = np.array(precisions)
+
+        sort_idx = np.argsort(recalls_arr)
+        map_auc = auc(recalls_arr[sort_idx], precisions_arr[sort_idx]) if len(self.thresholds) > 1 else precisions[0]
+
+        summary["mAP"] = float(map_auc)                  # PR-AUC across distance thresholds
+        summary["mean_precision"] = float(np.mean(precisions)) # Average Precision across thresholds
+        summary["mAR"] = float(np.mean(recalls))          # Mean Recall across thresholds
+        summary["mAF1"] = float(np.mean(f1s))             # Mean F1 across thresholds
+            
+        # total_precision = total_tp / max(total_tp + total_fp, 1)
+        # total_recall = total_tp / max(total_tp + total_fn, 1)
+        # summary["mAP"] = total_precision
+        # summary["mAR"] = total_recall
+        # summary[f"mAF1"] = (2 * total_precision * total_recall) / (total_precision + total_recall)
 
         return summary
 
 
 
     def print_and_save_benchmark(self, exp_name, should_print=True, save_path=None):
-        distances = np.array(self.tp_distances)
+        summary = self.get_summary()
 
-        output = "--- Benchmark Summary ---"
-        output += f"\n  From: {exp_name}"
-        output += f"\n\nMean Localization Error: {distances.mean():.4f} m"
-        output += f"\nMedian Localization Error: {np.median(distances):.4f} m"
-        output += f"\nP95 Error Bound: {np.percentile(distances, 95):.4f} m"
-        
-        recalls = [res["tp"] / max(res["tp"] + res["fn"], 1) for res in self.results.values()]
-        output += f"\nmAR: {np.mean(recalls):.4f}"
+        output = f"--- Benchmark Summary: {exp_name} ---\n"
+        output += f"Mean Localization Error (L2): {summary['mean_localization_error_m']:.4f} m\n"
+        output += f"Median (P50) Error:     {summary['p50_error_m']:.4f} m\n"
+        output += f"P95 Error Bound:        {summary['p95_error_m']:.4f} m\n"
+        output += f"-------------------------\n"
+        output += f"mAP (PR-AUC):           {summary['mAP']:.4f}\n"
+        output += f"mAR (Mean Recall):      {summary['mAR']:.4f}\n"
+        output += f"mAF1 (Mean F1):         {summary['mAF1']:.4f}\n"
+        output += f"-------------------------\n"
 
-        precisions = [res["tp"] / max(res["tp"] + res["fp"], 1) for res in self.results.values()]
-        # mAP = np.mean(precisions)
-        idx = np.argsort(recalls)
-        mAP = auc(np.array(recalls)[idx], np.array(precisions)[idx])
-        output += f"\nmAP: {mAP:.4f}"
-
-        # F1
-        best_idx = np.argmin(np.abs(np.array(self.thresholds) - 0.05))
-        f1_at_005m = 2*(precisions[best_idx] * recalls[best_idx]) / (precisions[best_idx] + recalls[best_idx] + 1e-8)
-        output += f"\nF1 {self.thresholds[best_idx]}: {f1_at_005m:.4f}"
-
-        output += "\n-------------------------"
+        for t in self.thresholds:
+            p = summary[f"precision_at_{t}m"]
+            r = summary[f"recall_at_{t}m"]
+            f1 = summary[f"f1_at_{t}m"]
+            output += f"Threshold {t:4.2f}m -> P: {p:.4f} | R: {r:.4f} | F1: {f1:.4f}\n"
+            
+        output += "-------------------------"
 
         if should_print:
             print(output)
@@ -243,7 +276,7 @@ def main():
     gt_double_counts = count_double_entry(gt)
     if gt_double_counts > 0:
         raise ValueError(f"Ground Truth have {gt_double_counts} double entries!")
-    pred_double_counts = count_double_entry(gt)
+    pred_double_counts = count_double_entry(pred)
     if pred_double_counts > 0:
         raise ValueError(f"Predictions have {pred_double_counts} double entries!")
 
@@ -252,14 +285,14 @@ def main():
     for cur_entry in gt:
         cur_gt_pc_id = cur_entry["pointcloud-id"]
         cur_gt_dataset = cur_entry["dataset"]
-        cur_gt_centers = cur_entry["centers"] if hasattr(cur_entry, "centers") else []
+        cur_gt_centers = cur_entry["centers"] if "centers" in cur_entry else []
 
         # find prediction entry
         found_entry_match = False
         for cur_pred_entry in pred:
             cur_pred_pc_id = cur_pred_entry["pointcloud-id"]
             cur_pred_dataset = cur_pred_entry["dataset"]
-            cur_pred_centers = cur_pred_entry["centers"] if hasattr(cur_pred_entry, "centers") else []
+            cur_pred_centers = cur_pred_entry["centers"] if "centers" in cur_pred_entry else []
 
             if cur_gt_dataset == cur_pred_dataset and \
                cur_gt_pc_id == cur_pred_pc_id:
@@ -289,183 +322,6 @@ def main():
 if __name__ == "__main__":
     main()
 
-
-# ----------
-# > Helper <
-# ----------
-# def compute_distance(p1, p2, mode="xy"):
-#     assert len(mode.replace("x", "").replace("y", "").replace("z", "")) == 0
-    
-#     distances = 0.0
-
-#     for cur_dim in mode:
-#         distances += (p1[cur_dim] - p2[cur_dim])**2
-
-#     return np.sqrt(distances)
-
-
-
-# def compare_centers(gt_centers, pred_centers, threshold=0.5, distance_mode="xy"):
-#     matched_gt = set()
-
-#     distances = []
-#     total_error = 0
-#     tp = 0
-#     fp = 0
-
-#     for pred_center in pred_centers:
-
-#         best_gt_idx = None
-#         best_dist = threshold
-
-#         for gt_idx, gt_center in enumerate(gt_centers):
-#             if gt_idx in matched_gt:
-#                 continue
-
-#             dist = compute_distance(pred_center, gt_center, mode=distance_mode)
-
-#             if dist < best_dist:
-#                 best_dist = dist
-#                 best_gt_idx = gt_idx
-
-#         if best_gt_idx is not None:
-#             matched_gt.add(best_gt_idx)
-#             tp += 1
-#             total_error += best_dist
-#             distances.append(best_dist)
-#         else:
-#             fp += 1
-
-#     fn = len(gt_centers) - len(matched_gt)
-
-#     return tp, fp, fn, total_error, distances
-
-
-# # --------
-# # > Main <
-# # --------
-# def main():
-#     with open("./config.json") as f:
-#         cfg = json.load(f)
-
-#     gt_json_path = cfg["ground_truth_path"]
-#     pred_json_path = cfg["prediction_path"]
-#     thresholds = cfg["distance_threshold"]
-#     distance_mode = cfg["distance_mode"]
-
-#     # load gt and pred
-#     with open(gt_json_path, "r", encoding="utf-8") as json_file:
-#         gt = json.load(json_file)
-
-#     with open(pred_json_path, "r", encoding="utf-8") as json_file:
-#         pred = json.load(json_file)
-
-#     # go through every file
-#     for gt_dataset in gt:
-#         # init accumulators
-#         total_tp = [0] * len(thresholds)
-#         total_fp = [0] * len(thresholds)
-#         total_fn = [0] * len(thresholds)
-#         total_error = [0] * len(thresholds)
-#         all_distances = []
-
-#         dataset_name = gt_dataset["dataset"]
-
-#         # get the same dataset from prediction
-#         pred_dataset = None
-#         for cur_pred_dataset in pred:
-#             if cur_pred_dataset["dataset"] == dataset_name:
-#                 pred_dataset = cur_pred_dataset
-#                 break
-
-#         if pred_dataset is None:
-#             # or maybe just skip and print?
-#             raise ValueError(f"No prediction for '{dataset_name}'-dataset found.")
-        
-#         # go through every point cloud
-#         for gt_point_cloud in gt_dataset["data"]:
-#             pc_id = gt_point_cloud["pointcloud-id"]
-#             gt_centers = gt_point_cloud["centers"]
-
-#             # search for the same pc in predictions
-#             pred_point_cloud = None
-#             for cur_pred_point_cloud in pred_dataset["data"]:
-#                 if cur_pred_point_cloud["pointcloud-id"] == pc_id:
-#                     pred_point_cloud = cur_pred_point_cloud
-#                     break
-
-#             if pred_point_cloud is None:
-#                 # raise ValueError(f"No prediction for '{pc_id}'-point cloud found.")
-#                 print(f"[WARNING] no prediction for {pc_id}")
-
-#                 for i in range(len(thresholds)):
-#                     total_fn[i] += len(gt_centers)
-#                 continue
-
-#             pred_centers = pred_point_cloud["centers"]
-
-#             # compare the predictions
-#             for idx, threshold in enumerate(thresholds):
-#                 tp, fp, fn, error, distances = compare_centers(gt_centers=gt_centers,
-#                                                                pred_centers=pred_centers,
-#                                                                threshold=threshold,
-#                                                                distance_mode=distance_mode)
-#                 total_tp[idx] += tp
-#                 total_fp[idx] += fp
-#                 total_fn[idx] += fn
-#                 total_error[idx] += error
-#                 mean_error = total_error[idx] / max(total_tp[idx], 1)
-#                 all_distances += distances
-
-
-#         # compute additional errors and result string
-#         result = "\n\n--- Evaluation Results ---\n"
-#         result += f"\n DATASET: {dataset_name}"
-#         for i, threshold in enumerate(thresholds):
-
-#             precision = (
-#                 total_tp[i] /
-#                 max(total_tp[i] + total_fp[i], 1)
-#             )
-
-#             recall = (
-#                 total_tp[i] /
-#                 max(total_tp[i] + total_fn[i], 1)
-#             )
-
-#             f1 = (
-#                 2 * precision * recall /
-#                 max(precision + recall, 1e-8)
-#             )
-
-#             mean_error = (
-#                 total_error[i] /
-#                 max(total_tp[i], 1)
-#             )
-
-#             all_distances = np.array(all_distances)
-
-#             result += f"\n -> Threshold: {threshold}\n"
-#             result += f"\nF1: {f1}"
-#             result += f"\nPrecision: {precision}"
-#             result += f"\nRecall: {recall}"
-#             result += f"\nMean Error: {mean_error}"
-#             result += f"\nMean Distances: {all_distances.mean()}"
-#             result += f"\nMedian Distances: {all_distances.median()}"
-#             result += f"\nMax Distances: {all_distances.max()}"
-#             result += f"\nMin Distances: {all_distances.min()}"
-#             result += f"\nStd Distances: {all_distances.std()}"
-#             result += f"\nOthers:"
-#             result += f"\n    - TP: {total_tp[i]}"
-#             result += f"\n    - FP: {total_fp[i]}"
-#             result += f"\n    - FN: {total_fn[i]}"
-#             result += f"\n    - Total Error: {total_error[i]}\n\n{'-'*36}\n\n"
-
-#     # FIXME -> maybe add stats for every dataset seperate?
-#     # any other measurements?
-#     # -> I want to evaluate different methods, I should have very good evaluation metrics!
-
-#     print(result)
 
 
 

@@ -13,7 +13,7 @@ Evaluation Repo to eval manhole center prediction.
     2. Open Anaconda Prompt
     3. Create env (you might to install another pytorch version):
         ```bash
-        conda create -n cfc python=3.14 pip -y
+        conda create -n mcreval python=3.14 pip -y
         ```
 2. Download Dataset via https://challenge.isic-archive.com/data/#2019
     - Download `Training Data` Task 1 -> 9,1 GB
@@ -24,7 +24,7 @@ Evaluation Repo to eval manhole center prediction.
 3. Adjust the config file as you need
 4. Run it
     1. Activate the env in VS Code (as current used interpreter)
-    2. Open any python file + Click on the arrow next to the Run button and choose "Debug using launch.json" and choose cfc then
+    2. Open any python file + Click on the arrow next to the Run button and choose "Debug using launch.json" and choose mcreval then
 
 
 > If you want to use the label format helper, [see here](#use-label-format-helper).

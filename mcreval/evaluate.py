@@ -728,6 +728,81 @@ class CenterEvaluator:
 
         return output
 
+    def plot_benchmark(self, show_plot=True, save_path=None, exp_name=""):
+        plt.style.use("seaborn-v0_8-whitegrid")
+        fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(16, 6))
+
+        # Plot 1: PR Curve
+        # FIXME -> add F1 scores?
+        precisions = [res["tp"] / max(res["tp"]+res["fp"], 1) for res in self.results.values()]
+        recalls = [res["tp"] / max(res["tp"]+res["fn"], 1) for res in self.results.values()]
+
+        # AUC = Area Under Curve
+        # sort_indices = np.argsort(recalls)
+        # recalls_sorted = np.array(recalls)[sort_indices]
+        # precisions_sorted = np.array(precisions)[sort_indices]
+        # auc_ = auc(recalls_sorted, precisions_sorted)
+        # auc_ = np.trapezoid(precisions, recalls)
+        auc_ = auc(recalls, precisions)
+        ax[0].plot(recalls, precisions, marker='o', linestyle="-", linewidth=2, color='#2c3e50', label=f"PR-AUC (mAP): {auc_:.3f}")
+        # add thresholds as description
+        for i, t in enumerate(self.thresholds):
+            r_val = recalls[i]
+            p_val = precisions[i]
+            ax[0].annotate(f"{t:.2f}m", (r_val, p_val),
+                        xytext=(6, -6), textcoords='offset points',
+                        fontsize=8, fontweight='bold', color='#34495e')
+            # if i % 2 == 0:  # do not add text for every point
+            #     ax[0].annotate(f"{t:.2f}m", (recalls[i], precisions[i]),
+            #                    xytext=(5,5), textcoords='offset points',
+            #                    fontsize=8)
+        ax[0].set_title(f"Precision-Recall Curve across Distance Thresholds", fontsize=12, pad=10)
+        ax[0].set_xlabel("Recall", fontsize=10)
+        ax[0].set_ylabel("Precision", fontsize=10)
+        ax[0].set_xlim([-0.02, 1.02])
+        ax[0].set_ylim([-0.02, 1.02])
+        # ax[0].legend()
+        ax[0].legend(loc="upper left", frameon=True)
+        ax[0].grid(True, linestyle="--", alpha=0.6)
+
+        # Plot 2: Error Histogram
+        if len(self.tp_distances) > 0:
+            max_dist = max(self.thresholds)
+            # BINS FIX: Dynamic bins covering 0 up to max_threshold
+            bins = np.linspace(0, max_dist, 21)  # 20 uniform bins up to max threshold
+            
+            counts, _, patches = ax[1].hist(self.tp_distances, bins=bins, edgecolor="black", 
+                                            color="#3498db", alpha=0.75)
+
+            # Statistical Markers
+            p50 = np.percentile(self.tp_distances, 50)
+            p95 = np.percentile(self.tp_distances, 95)
+            
+            ax[1].axvline(p50, color='#e74c3c', linestyle='--', linewidth=2, label=f'P50 (Median): {p50:.3f}m')
+            ax[1].axvline(p95, color='#e67e22', linestyle=':', linewidth=2, label=f'P95 Bound: {p95:.3f}m')
+
+            ax[1].set_title("Localization Error Distribution (True Positives)", fontsize=12, pad=10)
+            ax[1].set_xlabel("Euclidean Distance to GT Center (m)", fontsize=10)
+            ax[1].set_ylabel("Count", fontsize=10)
+            ax[1].set_xlim([0, max_dist])
+            ax[1].legend(loc="upper right", frameon=True)
+            ax[1].grid(axis='y', linestyle='--', alpha=0.6)
+        else:
+            ax[1].text(0.5, 0.5, "No True Positives Found", ha='center', va='center', fontsize=12)
+
+        # plt.tight_layout()
+
+        if save_path:
+            full_save_path = os.path.join(save_path, f"mcreval_pr_curve_and_error_hist_{exp_name}.png")
+            os.makedirs(save_path, exist_ok=True)
+            plt.savefig(full_save_path, dpi=300)
+            print(f"Plot saved under: '{full_save_path}'")
+
+        if show_plot:
+            plt.show()
+
+        plt.close(fig)
+
 
 # ----------
 # > Helper <
@@ -754,6 +829,12 @@ def main():
     save_path = cfg.get("save_path", "./results")
     exp_name = cfg.get("exp_name", "experiment")
     thresholds = cfg.get("distance_threshold", [0.01, 0.05, 0.1, 0.2, 0.4, 0.6, 0.8])
+
+    # setup result dir
+    save_path = os.path.join(save_path, exp_name)
+    os.makedirs(save_path, exist_ok=True)
+    shutil.rmtree(save_path)
+    os.makedirs(save_path)
     
     # Configuration flags for Interactive Mode
     interactive_mode = cfg.get("interactive_mode", False)
@@ -806,6 +887,7 @@ def main():
             )
 
     evaluator.print_and_save_benchmark(exp_name=exp_name, should_print=True, save_path=save_path)
+    evaluator.plot_benchmark(show_plot=False, save_path=save_path, exp_name=exp_name)
 
     if create_debug_plots:
         debug_dir = os.path.join(save_path, f"debug_plots_{exp_name}")

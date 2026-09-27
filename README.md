@@ -13,7 +13,7 @@ Evaluation Repo to eval manhole center prediction.
     2. Open Anaconda Prompt
     3. Create env (you might to install another pytorch version):
         ```bash
-        conda create -n mcreval python=3.14 pip -y
+        conda create -n mcreval python=3.12 pip -y
         ```
 2. Download Dataset via https://challenge.isic-archive.com/data/#2019
     - Download `Training Data` Task 1 -> 9,1 GB

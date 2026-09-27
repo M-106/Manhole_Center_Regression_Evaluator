@@ -10,7 +10,11 @@ readme = "README.md"
 dependencies = [
     "numpy",
     "scipy",
-    "matplotlib"
+    "matplotlib",
+    "open3d",
+    "h5py",
+    "scikit-learn",
+    "scipy"
 ]
 
 [build-system]

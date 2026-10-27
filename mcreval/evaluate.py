@@ -534,7 +534,39 @@ def plot_results_over_confidence(
     plt.savefig(localization_plot_file)
     plt.close()
 
-    print(f"Confidence-Plots saved successfully to:\n    - {detection_plot_file}\n    - {localization_plot_file}")
+    # ------------------------
+    # PLOT 3. Runtime / Time Plot (Mean ± Std, P50, P95)
+    mean_time = np.array([r.get("mean_time_error", np.nan) for r in results_list])
+    time_plot_file = None
+    if np.any(mean_time > 0):
+        std_time = np.array([r.get("std_time_error", np.nan) for r in results_list])
+        p50_time = np.array([r.get("p50_time_error", np.nan) for r in results_list])
+        p95_time = np.array([r.get("p95_time_error", np.nan) for r in results_list])
+
+        fig, ax_time = plt.subplots(1, 1, figsize=(10, 6), dpi=300)
+        ax_time.plot(confidences, mean_time, label="Mean Time", color="tab:purple", linewidth=2)
+        ax_time.fill_between(
+            confidences,
+            np.maximum(0, mean_time - std_time),
+            mean_time + std_time,
+            color="tab:purple",
+            alpha=0.15,
+            label="Mean ± Std",
+        )
+        ax_time.plot(confidences, p50_time, label="P50 (Median) Time", color="tab:green", linewidth=2, linestyle="--")
+        ax_time.plot(confidences, p95_time, label="P95 Time", color="tab:red", linewidth=2, linestyle=":")
+
+        ax_time.set_title("Inference / Extraction Runtime over Confidence", fontsize=13, fontweight="bold")
+        ax_time.set_xlabel("Confidence Threshold", fontsize=12)
+        ax_time.set_ylabel("Time [seconds]", fontsize=12)
+        ax_time.set_xlim(min(confidences), max(confidences))
+        ax_time.legend(loc="upper right", frameon=True)
+
+        time_plot_file = os.path.join(save_path, "time_over_confidence.png")
+        plt.savefig(time_plot_file)
+        plt.close()
+
+    print(f"Confidence-Plots saved successfully to:\n    - {detection_plot_file}\n    - {localization_plot_file}\n    - {time_plot_file}")
 
 
 
@@ -544,10 +576,7 @@ def text_results_over_confidence(
     save_path
 ):
     """
-    Finds the best (ranking) manhole center regression results with different confidences.
-
-    Meant for debugging and decision-helping of model-confidence.
-
+    Finds the best (ranking) manhole center regression results across confidences.
     Saves the result as a text file and prints out where the results are saved.
     """
     output_lines = []
@@ -560,16 +589,15 @@ def text_results_over_confidence(
     output_lines.append("\n1. TOP 3 CONFIDENCE THRESHOLDS RANKINGS")
     output_lines.append("-" * 80)
 
-    # Find key-value pairs with optimal metrics
     top3_maf1 = sorted(
         results_over_confidences.items(), 
         key=lambda x: x[1].get("mAF1", -1.0),
         reverse=True
     )[:3]
 
-    top3_map = sorted(
+    top3_mp = sorted(
         results_over_confidences.items(),
-        key=lambda x: x[1].get("mAP", -1.0),
+        key=lambda x: x[1].get("mean_precision", -1.0),
         reverse=True
     )[:3]
 
@@ -582,38 +610,36 @@ def text_results_over_confidence(
     top3_loc = sorted(
         results_over_confidences.items(),
         key=lambda x: x[1].get("mean_localization_error_m", float("inf"))
+        if x[1].get("num_tp_matched", 0) > 0 else float("inf")
     )[:3]
 
-    # Display top 3 mAF1
     output_lines.append("\n[DETECTION] Top 3 Overall Balance (Highest mAF1):")
     for rank, (conf, metrics) in enumerate(top3_maf1, start=1):
         output_lines.append(
             f"  {rank}. Conf = {conf} "
-            f"(mAF1 = {metrics.get('mAF1', 0.0):.4f})"
+            f"(mAF1 = {metrics.get('mAF1', 0.0):.4f} | mP = {metrics.get('mean_precision', 0.0):.4f} | mAR = {metrics.get('mAR', 0.0):.4f})"
         )
 
-    # Display top 3 mAP
-    output_lines.append("\n[DETECTION] Top 3 Mean Precision (Highest mAP):")
-    for rank, (conf, metrics) in enumerate(top3_map, start=1):
+    output_lines.append("\n[DETECTION] Top 3 Mean Precision (Highest mP):")
+    for rank, (conf, metrics) in enumerate(top3_mp, start=1):
         output_lines.append(
             f"  {rank}. Conf = {conf} "
-            f"(mAP = {metrics.get('mAP', 0.0):.4f})"
+            f"(mP = {metrics.get('mean_precision', 0.0):.4f} | mAP = {metrics.get('mAP', 0.0):.4f})"
         )
 
-    # Display top 3 mAR
     output_lines.append("\n[DETECTION] Top 3 Mean Recall (Highest mAR):")
     for rank, (conf, metrics) in enumerate(top3_mar, start=1):
         output_lines.append(
             f"  {rank}. Conf = {conf} "
-            f"(mAP = {metrics.get('mAP', 0.0):.4f})"
+            f"(mAR = {metrics.get('mAR', 0.0):.4f})"
         )
 
-    # Display top 3 localization errors
-    output_lines.append("\n[LOCALIZATION] Top 3 Lowest Mean Localization Errors (Euclidean Dist):")
+    output_lines.append("\n[LOCALIZATION] Top 3 Lowest Mean Localization Errors (L2 ± SD | RMSE):")
     for rank, (conf, metrics) in enumerate(top3_loc, start=1):
         output_lines.append(
             f"  {rank}. Conf = {conf} "
-            f"({metrics.get('mean_localization_error_m', 0.0):.4f} m)"
+            f"(L2 = {metrics.get('mean_localization_error_m', 0.0):.4f} ± {metrics.get('std_localization_error_m', 0.0):.4f} m | "
+            f"RMSE = {metrics.get('rmse_localization_error_m', 0.0):.4f} m | mAF1 = {metrics.get('mAF1', 0.0):.4f})"
         )
 
     output_lines.append("=" * 80)
@@ -622,49 +648,59 @@ def text_results_over_confidence(
     output_lines.append("2. DETAILED METRICS BY CONFIDENCE THRESHOLD")
     output_lines.append("-" * 80)
 
-    # Sort items by confidence value for a clean ascending printout
-    sorted_results = sorted(
-        results_over_confidences.items(), key=lambda x: x[0]
-    )
+    sorted_results = sorted(results_over_confidences.items(), key=lambda x: x[0])
 
     for conf, metrics in sorted_results:
-        output_lines.append(f"Confidence Threshold: {conf}")
+        output_lines.append(f"Confidence Threshold: {conf} (Matched TPs: {metrics.get('num_tp_matched', 0)})")
 
-        output_lines.append("  [Localization Errors - Detections Only]")
+
+        output_lines.append("  [Localization Errors - Matched TP Detections Only]")
         output_lines.append(
-            f"    - Mean Error:   {metrics.get('mean_localization_error_m', 0.0):.4f} m"
+            f"    - Mean L2 ± Std: {metrics.get('mean_localization_error_m', 0.0):.4f} ± {metrics.get('std_localization_error_m', 0.0):.4f} m"
         )
         output_lines.append(
-            f"    - Std Dev:      {metrics.get('std_localization_error_m', 0.0):.4f} m"
+            f"    - RMSE:          {metrics.get('rmse_localization_error_m', 0.0):.4f} m"
         )
         output_lines.append(
-            f"    - Median (P50): {metrics.get('p50_error_m', 0.0):.4f} m"
+            f"    - Median (P50):  {metrics.get('p50_error_m', 0.0):.4f} m"
         )
         output_lines.append(
-            f"    - P95 Error:    {metrics.get('p95_error_m', 0.0):.4f} m"
+            f"    - P95 Error:     {metrics.get('p95_error_m', 0.0):.4f} m"
         )
+
 
         output_lines.append("  [Localization Errors - All Ground Truths]")
         output_lines.append(
-            f"    - Mean Error:   {metrics.get('all_mean_localization_error_m', 0.0):.4f} m"
+            f"    - Mean L2 ± Std: {metrics.get('all_mean_localization_error_m', 0.0):.4f} ± {metrics.get('all_std_localization_error_m', 0.0):.4f} m"
         )
         output_lines.append(
-            f"    - Std Dev:      {metrics.get('all_std_localization_error_m', 0.0):.4f} m"
+            f"    - RMSE:          {metrics.get('all_rmse_localization_error_m', 0.0):.4f} m"
         )
         output_lines.append(
-            f"    - Median (P50): {metrics.get('all_p50_error_m', 0.0):.4f} m"
+            f"    - Median (P50):  {metrics.get('all_p50_error_m', 0.0):.4f} m"
         )
         output_lines.append(
-            f"    - P95 Error:    {metrics.get('all_p95_error_m', 0.0):.4f} m"
+            f"    - P95 Error:     {metrics.get('all_p95_error_m', 0.0):.4f} m"
         )
+
+
+        output_lines.append("  [Runtime / Time Performance]")
+        output_lines.append(
+            f"    - Mean Time ± Std: {metrics.get('mean_time_error', 0.0):.4f} ± {metrics.get('std_time_error', 0.0):.4f} s"
+        )
+        output_lines.append(
+            f"    - Median (P50):    {metrics.get('p50_time_error', 0.0):.4f} s"
+        )
+        output_lines.append(
+            f"    - P95 Time:        {metrics.get('p95_time_error', 0.0):.4f} s"
+        )
+
 
         output_lines.append("  [Overall Spatial Averages]")
         output_lines.append(
-            f"    - mAP: {metrics.get('mAP', 0.0):.4f} | mAR: {metrics.get('mAR', 0.0):.4f} | mAF1: {metrics.get('mAF1', 0.0):.4f}"
+            f"    - mP (Mean Prec): {metrics.get('mean_precision', 0.0):.4f} | mAR: {metrics.get('mAR', 0.0):.4f} | mAF1: {metrics.get('mAF1', 0.0):.4f} | PR-AUC (mAP): {metrics.get('mAP', 0.0):.4f}"
         )
-        output_lines.append(
-            f"    - Mean Precision: {metrics.get('mean_precision', 0.0):.4f}"
-        )
+
 
         output_lines.append("  [Threshold Specific Performance]")
         for t in spatial_thresholds:
@@ -672,16 +708,14 @@ def text_results_over_confidence(
             r = metrics.get(f"recall_at_{t}m", 0.0)
             f1 = metrics.get(f"f1_at_{t}m", 0.0)
             output_lines.append(
-                f"    - Spatial Threshold {t}m -> Precision: {p:.4f} | Recall: {r:.4f} | F1: {f1:.4f}"
+                f"    - Spatial Threshold {t:4.2f}m -> Precision: {p:.4f} | Recall: {r:.4f} | F1: {f1:.4f}"
             )
 
         output_lines.append("-" * 80)
 
     output_lines.append("=" * 80)
 
-    # --- 3. WRITE TO FILE & PRINT NOTIFICATION ---
     full_text = "\n".join(output_lines)
-
     save_file_path = os.path.join(save_path, "confidence_text_results.txt")
 
     with open(save_file_path, "w", encoding="utf-8") as f:
@@ -857,18 +891,25 @@ def visualize_scene_interactive(
 # > Evaluation <
 # --------------
 class CenterEvaluator:
-    def __init__(self, spatial_thresholds=[0.01, 0.05, 0.1, 0.2, 0.4, 0.6, 0.8], conf_threshold=0.0):
-        self.spatial_thresholds = spatial_thresholds
+    def __init__(
+        self,
+        spatial_thresholds=[0.01, 0.05, 0.1, 0.2, 0.4, 0.6, 0.8],
+        conf_threshold=0.0,
+        eval_2d_only=False,  # Set True if comparing 2D BEV models without Z-predictions
+    ):
+        self.spatial_thresholds = sorted(spatial_thresholds)
         self.conf_threshold = conf_threshold
-        
-        self.tp_distances = []
+        self.eval_2d_only = eval_2d_only
+
+        self.tp_distances = []       # Primary distance (3D or 2D depending on mode/availability)
+        self.tp_distances_2d = []    # Always tracks 2D (X, Y) horizontal error for fair 2D vs 3D comparison
         self.tp_time_errors = []
-        self.all_distances = []
-        self.results = {t: {"tp": 0, "fp": 0, "fn": 0} for t in spatial_thresholds}
-        self.matches_record = []  # for detailed debugging
-        
+        self.all_distances = []      # Nearest-neighbor distance for all GT instances
+        self.results = {t: {"tp": 0, "fp": 0, "fn": 0} for t in self.spatial_thresholds}
+        self.matches_record = []     # For detailed debugging
+
     def update(self, gt_centers, pred_centers, dataset="", pc_id=""):
-        # add confidence if not added
+        # Add confidence if not present
         formatted_preds = []
         for cur_pred in pred_centers:
             cur_pred_copy = dict(cur_pred)
@@ -876,56 +917,79 @@ class CenterEvaluator:
                 cur_pred_copy["confidence"] = -999
             formatted_preds.append(cur_pred_copy)
 
-        # Apply evaluation at default confidence threshold
+        # Filter predictions matching the current confidence bucket/threshold
         valid_preds = [p for p in formatted_preds if p["confidence"] == self.conf_threshold]
         self._evaluate_scene(gt_centers, valid_preds, dataset, pc_id)
 
-        
     def _evaluate_scene(self, gt_centers, pred_centers, dataset, pc_id):
         if len(gt_centers) == 0 and len(pred_centers) == 0:
             return
         elif len(gt_centers) == 0:
-            # only FPs
-            for t in self.spatial_thresholds: 
+            # Only False Positives
+            for t in self.spatial_thresholds:
                 self.results[t]["fp"] += len(pred_centers)
             for p in pred_centers:
                 self.matches_record.append({
                     "type": "FP", "dataset": dataset, "pc_id": pc_id,
-                    "gt": None, "pred": p, "dist": None
+                    "gt": None, "pred": p, "dist": None, "dist_2d": None
                 })
             return
         elif len(pred_centers) == 0:
-            # only FNs
+            # Only False Negatives
             for t in self.spatial_thresholds:
                 self.results[t]["fn"] += len(gt_centers)
             for g in gt_centers:
                 self.matches_record.append({
                     "type": "FN", "dataset": dataset, "pc_id": pc_id,
-                    "gt": g, "pred": None, "dist": None
+                    "gt": g, "pred": None, "dist": None, "dist_2d": None
                 })
             return
-        
-        gt_arr = np.array([(x['x'], x['y'], x['z']) for x in gt_centers])
-        pred_arr = np.array([(x['x'], x['y'], x['z']) for x in pred_centers])
-        
-        dist_matrix = cdist(gt_arr, pred_arr, metric='euclidean')
-        row_indices, col_indices = linear_sum_assignment(dist_matrix)
+
+        # Check if predictions actually contain valid Z coordinates
+        has_valid_z = (not self.eval_2d_only) and all(
+            ("z" in p and p["z"] is not None) for p in pred_centers
+        )
+
+        gt_arr_2d = np.array([(x["x"], x["y"]) for x in gt_centers], dtype=np.float64)
+        pred_arr_2d = np.array([(x["x"], x["y"]) for x in pred_centers], dtype=np.float64)
+        dist_matrix_2d = cdist(gt_arr_2d, pred_arr_2d, metric="euclidean")
+
+        if has_valid_z:
+            gt_arr_3d = np.array([(x["x"], x["y"], x["z"]) for x in gt_centers], dtype=np.float64)
+            pred_arr_3d = np.array([(x["x"], x["y"], x["z"]) for x in pred_centers], dtype=np.float64)
+            dist_matrix = cdist(gt_arr_3d, pred_arr_3d, metric="euclidean")
+        else:
+            dist_matrix = dist_matrix_2d
+
+        # Record nearest-neighbor error across all GTs (unthresholded)
+        min_gt_dists = np.min(dist_matrix, axis=1)
+        self.all_distances.extend(min_gt_dists.tolist())
+
+        # Gate cost matrix at max_match_t so distant FPs don't corrupt Hungarian matching
+        max_match_t = max(self.spatial_thresholds)
+        gated_cost_matrix = np.where(dist_matrix <= max_match_t, dist_matrix, 1e6)
+        row_indices, col_indices = linear_sum_assignment(gated_cost_matrix)
 
         matched_gt_idx = set()
         matched_pred_idx = set()
 
-        max_match_t = max(self.spatial_thresholds)
         for r, c in zip(row_indices, col_indices):
-            d = dist_matrix[r, c]
+            d = float(dist_matrix[r, c])
+            d_2d = float(dist_matrix_2d[r, c])
             if d <= max_match_t:
                 matched_gt_idx.add(r)
                 matched_pred_idx.add(c)
                 self.tp_distances.append(d)
-                pred_time = pred_centers[c].get("time", -999.9)
-                self.tp_time_errors.append(pred_time)
+                self.tp_distances_2d.append(d_2d)
+
+                pred_time = pred_centers[c].get("time", None)
+                if pred_time is not None and pred_time >= 0:
+                    self.tp_time_errors.append(float(pred_time))
+
                 self.matches_record.append({
                     "type": "TP", "dataset": dataset, "pc_id": pc_id,
-                    "gt": gt_centers[r], "pred": pred_centers[c], "dist": d,
+                    "gt": gt_centers[r], "pred": pred_centers[c],
+                    "dist": d, "dist_2d": d_2d,
                     "time_diff": pred_time
                 })
 
@@ -934,7 +998,7 @@ class CenterEvaluator:
             if i not in matched_gt_idx:
                 self.matches_record.append({
                     "type": "FN", "dataset": dataset, "pc_id": pc_id,
-                    "gt": g, "pred": None, "dist": None
+                    "gt": g, "pred": None, "dist": None, "dist_2d": None
                 })
 
         # Unmatched Pred -> FP
@@ -942,51 +1006,69 @@ class CenterEvaluator:
             if j not in matched_pred_idx:
                 self.matches_record.append({
                     "type": "FP", "dataset": dataset, "pc_id": pc_id,
-                    "gt": None, "pred": p, "dist": None
+                    "gt": None, "pred": p, "dist": None, "dist_2d": None
                 })
 
-        # for different distance thresholds compute detection metrics
+        # For each spatial threshold, compute TP, FP, FN
+        matched_dists = dist_matrix[row_indices, col_indices]
         for t in self.spatial_thresholds:
-            tp_mask = dist_matrix[row_indices, col_indices] <= t
-            tp = np.sum(tp_mask)
+            tp = int(np.sum(matched_dists <= t))
             self.results[t]["tp"] += tp
             self.results[t]["fp"] += len(pred_centers) - tp
             self.results[t]["fn"] += len(gt_centers) - tp
 
+    @staticmethod
+    def _compute_dist_stats(distances, prefix=""):
+        """Helper to compute Mean L2, Std Dev, RMSE, Median (P50), and P95 safely."""
+        if len(distances) > 0:
+            arr = np.asarray(distances, dtype=np.float64)
+            return {
+                f"{prefix}mean_localization_error_m": float(np.mean(arr)),
+                f"{prefix}std_localization_error_m": float(np.std(arr)),
+                f"{prefix}rmse_localization_error_m": float(np.sqrt(np.mean(arr ** 2))),
+                f"{prefix}p50_error_m": float(np.percentile(arr, 50)),
+                f"{prefix}p95_error_m": float(np.percentile(arr, 95)),
+            }
+        return {
+            f"{prefix}mean_localization_error_m": 0.0,
+            f"{prefix}std_localization_error_m": 0.0,
+            f"{prefix}rmse_localization_error_m": 0.0,
+            f"{prefix}p50_error_m": 0.0,
+            f"{prefix}p95_error_m": 0.0,
+        }
+
     def get_summary(self):
         summary = {}
-        if self.tp_distances:
-            summary["mean_localization_error_m"] = float(np.mean(self.tp_distances))
-            summary["std_localization_error_m"] = float(np.std(self.tp_distances))
-            summary["p50_error_m"] = float(np.percentile(self.tp_distances, 50))
-            summary["p95_error_m"] = float(np.percentile(self.tp_distances, 95))
-        else:
-            summary.update({"mean_localization_error_m": 0.0, "std_localization_error_m": 0.0, "p50_error_m": 0.0, "p95_error_m": 0.0})
+        # 1. Matched TP Localization Stats (Primary & 2D XY)
+        summary.update(self._compute_dist_stats(self.tp_distances, prefix=""))
+        summary.update(self._compute_dist_stats(self.tp_distances_2d, prefix="xy_"))
+        summary["num_tp_matched"] = int(len(self.tp_distances))
 
-        if self.all_distances:
-            summary["all_mean_localization_error_m"] = float(np.mean(self.all_distances))
-            summary["all_std_localization_error_m"] = float(np.std(self.all_distances))
-            summary["all_p50_error_m"] = float(np.percentile(self.all_distances, 50))
-            summary["all_p95_error_m"] = float(np.percentile(self.all_distances, 95))
-        else:
-            summary.update({"all_mean_localization_error_m": 0.0, "all_std_localization_error_m": 0.0, "all_p50_error_m": 0.0, "all_p95_error_m": 0.0})
+        # 2. All GT Nearest-Neighbor Stats
+        summary.update(self._compute_dist_stats(self.all_distances, prefix="all_"))
 
+        # 3. Runtime / Time Stats
         if self.tp_time_errors:
-            summary["mean_time_error"] = float(np.mean(self.tp_time_errors))
-            summary["std_time_error"] = float(np.std(self.tp_time_errors))
-            summary["p50_time_error"] = float(np.percentile(self.tp_time_errors, 50))
-            summary["p95_time_error"] = float(np.percentile(self.tp_time_errors, 95))
+            t_arr = np.asarray(self.tp_time_errors, dtype=np.float64)
+            summary["mean_time_error"] = float(np.mean(t_arr))
+            summary["std_time_error"] = float(np.std(t_arr))
+            summary["p50_time_error"] = float(np.percentile(t_arr, 50))
+            summary["p95_time_error"] = float(np.percentile(t_arr, 95))
         else:
-            summary.update({"mean_time_error": 0.0, "std_time_error": 0.0, "p50_time_error": 0.0, "p95_time_error": 0.0})
+            summary.update({
+                "mean_time_error": 0.0, "std_time_error": 0.0,
+                "p50_time_error": 0.0, "p95_time_error": 0.0
+            })
 
+        # 4. Detection Metrics across Spatial Thresholds
         precisions, recalls, f1s = [], [], []
         for t in self.spatial_thresholds:
             cur = self.results[t]
             tp, fp, fn = cur["tp"], cur["fp"], cur["fn"]
 
-            precision = tp / max(tp + fp, 1e-8)
-            recall = tp / max(tp + fn, 1e-8)
-            f1 = (2 * precision * recall) / max(precision + recall, 1e-8)
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
 
             summary[f"precision_at_{t}m"] = float(precision)
             summary[f"recall_at_{t}m"] = float(recall)
@@ -998,36 +1080,54 @@ class CenterEvaluator:
 
         recalls_arr, precisions_arr = np.array(recalls), np.array(precisions)
         sort_idx = np.argsort(recalls_arr)
-        map_auc = auc(recalls_arr[sort_idx], precisions_arr[sort_idx]) if len(self.spatial_thresholds) > 1 else precisions[0]
+        map_auc = (
+            auc(recalls_arr[sort_idx], precisions_arr[sort_idx])
+            if len(self.spatial_thresholds) > 1
+            else precisions[0]
+        )
 
         summary["mAP"] = float(map_auc)
-        summary["mean_precision"] = float(np.mean(precisions))
-        summary["mAR"] = float(np.mean(recalls))
-        summary["mAF1"] = float(np.mean(f1s))
+        summary["mean_precision"] = float(np.mean(precisions))  # mP (Threshold-Averaged Precision)
+        summary["mAR"] = float(np.mean(recalls))                # mR (Threshold-Averaged Recall)
+        summary["mAF1"] = float(np.mean(f1s))                   # mF1 (Threshold-Averaged F1)
 
         return summary
 
     def print_and_save_benchmark(self, exp_name, should_print=True, save_path=None):
         summary = self.get_summary()
+        mean_cm = summary["mean_localization_error_m"] * 100.0
+        std_cm = summary["std_localization_error_m"] * 100.0
+        rmse_cm = summary["rmse_localization_error_m"] * 100.0
+        p50_cm = summary["p50_error_m"] * 100.0
+
+        t_mean = summary["mean_time_error"]
+        t_std = summary["std_time_error"]
+        t_p50 = summary["p50_time_error"]
+        t_p95 = summary["p95_time_error"]
+
         output = f"Benchmark Summary: {exp_name}\n"
-        output += f"------------------------\n"
-        output += f"      Time/Duration\n"
-        output += f"------------------------\n"
-        output += f"Mean Time Error:        {summary['mean_time_error']:.4f}\n"
-        output += f"Median (P50) Time Error:{summary['p50_time_error']:.4f}\n"
-        output += f"------------------------\n"
-        output += f"      Localization\n"
-        output += f"------------------------\n"
-        output += f"Mean Localization Error (L2): {summary['mean_localization_error_m']:.4f} m\n"
-        output += f"Median (P50) Error:     {summary['p50_error_m']:.4f} m\n"
-        output += f"P95 Error Bound:        {summary['p95_error_m']:.4f} m\n"
-        output += f"------------------------\n"
-        output += f"      Detection\n"
-        output += f"------------------------\n"
-        output += f"mAP (PR-AUC):           {summary['mAP']:.4f}\n"
-        output += f"mAR (Mean Recall):      {summary['mAR']:.4f}\n"
-        output += f"mAF1 (Mean F1):         {summary['mAF1']:.4f}\n"
-        output += f"-------------------------\n"
+        output += f"================================================\n"
+        output += f"      Time / Runtime\n"
+        output += f"------------------------------------------------\n"
+        output += f"Mean Time (± SD):          {t_mean:.4f} ± {t_std:.4f} s\n"
+        output += f"Median (P50) Time:         {t_p50:.4f} s\n"
+        output += f"P95 Time Bound:            {t_p95:.4f} s\n"
+        output += f"------------------------------------------------\n"
+        output += f"      Localization (Matched TPs, N={summary['num_tp_matched']})\n"
+        output += f"------------------------------------------------\n"
+        output += f"Mean Error (L2 ± SD):      {summary['mean_localization_error_m']:.4f} ± {summary['std_localization_error_m']:.4f} m  ({mean_cm:.2f} ± {std_cm:.2f} cm)\n"
+        output += f"RMSE:                      {summary['rmse_localization_error_m']:.4f} m  ({rmse_cm:.2f} cm)\n"
+        output += f"Median (P50) Error:        {summary['p50_error_m']:.4f} m  ({p50_cm:.2f} cm)\n"
+        output += f"P95 Error Bound:           {summary['p95_error_m']:.4f} m\n"
+        output += f"2D Horizontal (XY) L2±SD:  {summary['xy_mean_localization_error_m']:.4f} ± {summary['xy_std_localization_error_m']:.4f} m (RMSE: {summary['xy_rmse_localization_error_m']:.4f} m)\n"
+        output += f"------------------------------------------------\n"
+        output += f"      Detection (Multi-Threshold Averages)\n"
+        output += f"------------------------------------------------\n"
+        output += f"mP  (Mean Precision):      {summary['mean_precision']:.4f}\n"
+        output += f"mAR (Mean Recall):         {summary['mAR']:.4f}\n"
+        output += f"mAF1 (Mean F1):            {summary['mAF1']:.4f}\n"
+        output += f"PR-AUC (mAP):              {summary['mAP']:.4f}\n"
+        output += f"------------------------------------------------\n"
 
         for t in self.spatial_thresholds:
             p = summary[f"precision_at_{t}m"]
@@ -1035,13 +1135,22 @@ class CenterEvaluator:
             f1 = summary[f"f1_at_{t}m"]
             output += f"Threshold {t:4.2f}m -> P: {p:.4f} | R: {r:.4f} | F1: {f1:.4f}\n"
 
+        output += f"------------------------------------------------\n"
+        output += f"LaTeX Table Row (mP & mR & mF1 & Mean L2 ± SD [cm] & RMSE [cm] & Median [cm] & Time ± SD [s]):\n"
+        output += (
+            f"{exp_name} & {summary['mean_precision']:.4f} & {summary['mAR']:.4f} & "
+            f"{summary['mAF1']:.4f} & ${mean_cm:.2f} \\pm {std_cm:.2f}$ & "
+            f"{rmse_cm:.2f} & {p50_cm:.2f} & ${t_mean:.4f} \\pm {t_std:.4f}$ \\\\\n"
+        )
+        output += f"================================================\n"
+
         if should_print:
             print(output)
 
         if save_path:
             full_save_path = os.path.join(save_path, f"mcreval_{exp_name}.txt")
             os.makedirs(save_path, exist_ok=True)
-            with open(full_save_path, "w") as file_:
+            with open(full_save_path, "w", encoding="utf-8") as file_:
                 file_.write(output)
 
         return output, summary
@@ -1057,7 +1166,7 @@ class CenterEvaluator:
         
         # Create layout: Left plot spans full height (col 0), Right side split vertically (col 1)
         fig = plt.figure(figsize=(16, 8))
-        gs = gridspec.GridSpec(3, 2, width_ratios=[1.1, 1.0], height_ratios=[1.0, 1.0, 1.0], hspace=0.35, wspace=0.25)
+        gs = gridspec.GridSpec(3, 2, width_ratios=[1.1, 1.0], height_ratios=[1.0, 1.0, 1.0], hspace=0.55, wspace=0.25)
 
         ax_pr = fig.add_subplot(gs[:, 0])      # Spans both rows in column 0
         ax_hist_full = fig.add_subplot(gs[0, 1]) # Top right (Spatial Full)
@@ -1187,19 +1296,25 @@ class CenterEvaluator:
             bins_time = np.linspace(0, max(self.tp_time_errors) if max(self.tp_time_errors) > 0 else 1.0, 25)
             ax_hist_time.hist(self.tp_time_errors, bins=bins_time, edgecolor="black", color="#9b59b6", alpha=0.75)
 
+            mean_t = np.mean(self.tp_time_errors)
+            std_t = np.std(self.tp_time_errors)
             p50_t = np.percentile(self.tp_time_errors, 50)
             p95_t = np.percentile(self.tp_time_errors, 95)
 
-            ax_hist_time.axvline(p50_t, color='#e74c3c', linestyle='--', linewidth=2, label=f'P50: {p50_t:.3f}')
-            ax_hist_time.axvline(p95_t, color='#e67e22', linestyle=':', linewidth=2, label=f'P95: {p95_t:.3f}')
+            ax_hist_time.axvline(
+                mean_t, color="#2980b9", linestyle="-", linewidth=2,
+                label=f"Mean ± SD: {mean_t:.3f} ± {std_t:.3f}s"
+            )
+            ax_hist_time.axvline(p50_t, color="#e74c3c", linestyle="--", linewidth=2, label=f"P50: {p50_t:.3f}s")
+            ax_hist_time.axvline(p95_t, color="#e67e22", linestyle=":", linewidth=2, label=f"P95: {p95_t:.3f}s")
 
-            ax_hist_time.set_title("Time Error Distribution", fontsize=11, fontweight='bold', pad=8)
-            ax_hist_time.set_xlabel("Time Difference Error", fontsize=9.5)
+            ax_hist_time.set_title("Runtime Distribution (per Detection)", fontsize=11, fontweight="bold", pad=8)
+            ax_hist_time.set_xlabel("Runtime (Seconds)", fontsize=9.5)
             ax_hist_time.set_ylabel("Count", fontsize=9.5)
             ax_hist_time.legend(loc="upper right", frameon=True, fontsize=8.5)
-            ax_hist_time.grid(axis='y', linestyle='--', alpha=0.6)
+            ax_hist_time.grid(axis="y", linestyle="--", alpha=0.6)
         else:
-            ax_hist_time.text(0.5, 0.5, "No Time Data Found", ha='center', va='center', fontsize=12)
+            ax_hist_time.text(0.5, 0.5, "No Time Data Found", ha="center", va="center", fontsize=12)
 
         # Save & Show
         if save_path:
@@ -1247,13 +1362,20 @@ def main():
     with open("./config.json") as f:
         cfg = json.load(f)
 
-    save_path = cfg.get("save_path", "./results")
-    exp_name = cfg.get("exp_name", "experiment")[:50]
+    save_path = cfg.get("save_path", "./eval_out")
+    exp_name = cfg.get("exp_name", "experiment")[:200]
     exp_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', exp_name).rstrip(' .')
     spatial_thresholds = cfg.get("distance_threshold", [0.01, 0.05, 0.1, 0.2, 0.4, 0.6, 0.8])
 
+    if "whu" in cfg["ground_truth_path"].lower():
+        dataset = "whu"
+    elif "sud" in cfg["ground_truth_path"].lower():
+        dataset = "sud"
+    else:
+        dataset = os.path.split(cfg["ground_truth_path"])[1]
+
     # setup result dir
-    save_path = os.path.join(save_path, exp_name)
+    save_path = os.path.join(save_path, dataset, exp_name)
     os.makedirs(save_path, exist_ok=True)
     shutil.rmtree(save_path)
     os.makedirs(save_path)
@@ -1287,7 +1409,7 @@ def main():
         os.makedirs(cur_save_path)
 
         evaluator = CenterEvaluator(spatial_thresholds=spatial_thresholds, conf_threshold=cur_confidence)
-
+        
         # Evaluation Loop
         matched_pred_keys = set()
         for cur_entry in gt:
@@ -1295,7 +1417,7 @@ def main():
             cur_gt_dataset = cur_entry["dataset"]
             cur_gt_centers = cur_entry.get("centers", [])
 
-            # Match predictions
+            # 1. Match predictions to current GT scene
             cur_pred_centers = []
             for cur_pred_entry in pred:
                 if cur_gt_dataset == cur_pred_entry["dataset"] and cur_gt_pc_id == cur_pred_entry["pointcloud-id"]:
@@ -1303,6 +1425,7 @@ def main():
                     matched_pred_keys.add((cur_gt_dataset, cur_gt_pc_id))
                     break
 
+            # 2. Evaluate matched GT + Pred
             evaluator.update(
                 gt_centers=cur_gt_centers, 
                 pred_centers=cur_pred_centers,
@@ -1318,7 +1441,19 @@ def main():
                     pcd_path=pcd_path,
                     gt_centers=cur_gt_centers,
                     pred_centers=cur_pred_centers,
-                    match_threshold=0.2  # Threshold used to color TPs in blue
+                    match_threshold=0.2
+                )
+
+        # 3. Catching False Positives
+        # Catch predictions in scenes that had 0 GT manholes (not present in gt list)
+        for cur_pred_entry in pred:
+            key = (cur_pred_entry["dataset"], cur_pred_entry["pointcloud-id"])
+            if key not in matched_pred_keys:
+                evaluator.update(
+                    gt_centers=[],
+                    pred_centers=cur_pred_entry.get("centers", []),
+                    dataset=cur_pred_entry["dataset"],
+                    pc_id=cur_pred_entry["pointcloud-id"],
                 )
 
         _, summary = evaluator.print_and_save_benchmark(exp_name=exp_name, should_print=True, save_path=cur_save_path)

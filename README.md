@@ -72,6 +72,8 @@ Evaluation Repo to eval manhole center predictions.
                     save_path: "./output"  # where to save the gt, will crate a new folder inside of here
                     center_algorithm: "squares"    # choose algorithm to extract the centers: "squares", "mean", "ransac", "mesqra"
                     
+                  data: 
+                    type: "test"
                   ```
               - Start env (`conda env list`) + run python -> in anconda prompt
                   ```bash
@@ -92,6 +94,9 @@ Evaluation Repo to eval manhole center predictions.
                   save_path: "./data"  # where to save the gt, will crate a new folder inside of here
                   center_algorithm: "squares"    # choose algorithm to extract the centers: "squares", "mean", "ransac", "mesqra"
                   debugging_path: "./output"  # if None, will not create debugging plots (only for heatmaps)
+
+                data: 
+                  type: "all"
                 ```
               - Start env (`conda env list`) + run python -> in anconda prompt
                   ```bash

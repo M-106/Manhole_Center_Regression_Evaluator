@@ -1,13 +1,13 @@
 {
     "interactive_mode": false,
-    "create_debug_plots": true,
+    "create_debug_plots": false,
     "data_root_dir": "F:\\Fraunhofer_Backup\\data\\whu3d-dataset-wo-test-label\\mls\\h5",
     "patch_dir": "F:\\Fraunhofer_Backup\\data\\whu3d-dataset-wo-test-label\\mls\\h5\\preprocessed",
-    "ground_truth_path": "F:\\src\\MCR-Lab\\output\\center_gt\\whu_eval_ground_truths_squares.json",
-    "prediction_path": "F:\\src\\MCR-Lab\\output\\whu_eval_traditional_2d_hough.json",
-    "distance_threshold": [0.01, 0.05, 0.1, 0.2, 0.4, 0.6, 0.8],
+    "ground_truth_path": "F:\\src\\MCR-Lab\\output\\center_gt\\center_ground_truth_whu_test_squares.json",
+    "prediction_path": "F:\\src\\MCR-Lab\\output\\center_preds\\whu_test_traditional_2d_circularity.json",
+    "distance_threshold": [0.01, 0.05, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0],
     "save_path": "./eval_out",
-    "exp_name": "whu_eval_traditional_2d_hough"
+    "exp_name": "whu_test_traditional_2d_circularity"
 }
 
 
